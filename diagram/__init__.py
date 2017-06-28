@@ -7,19 +7,18 @@ from .eog import EyeOfGnomeViewer
 from .freedesktop_default import FreedesktopDefaultViewer
 from .windows import WindowsDefaultViewer
 from threading import Thread
-from os.path import splitext
 from sublime import error_message, load_settings
 import sys
 
 INITIALIZED = False
 AVAILABLE_PROCESSORS = [PlantUMLProcessor]
 AVAILABLE_VIEWERS = [
+    WindowsDefaultViewer,
     Sublime3Viewer,
     QuickLookViewer,
     EyeOfGnomeViewer,
     PreviewViewer,
     FreedesktopDefaultViewer,
-    WindowsDefaultViewer,
 ]
 ACTIVE_PROCESSORS = []
 ACTIVE_VIEWER = None
@@ -41,6 +40,7 @@ def setup():
             proc = processor()
             proc.CHARSET = sublime_settings.get('charset')
             proc.CHECK_ON_STARTUP = sublime_settings.get('check_on_startup')
+            proc.NEW_FILE = sublime_settings.get('new_file')
             proc.load()
             ACTIVE_PROCESSORS.append(proc)
             print("Loaded processor: %r" % proc)
@@ -85,7 +85,7 @@ def setup():
     print("Viewer: %r" % ACTIVE_VIEWER)
 
 
-def process(view):
+def process(view, output):
     diagrams = []
 
     for processor in ACTIVE_PROCESSORS:
@@ -107,10 +107,7 @@ def process(view):
 
     if diagrams:
         sourceFile = view.file_name()
-        if sourceFile is None:
-            sourceFile = 'untitled.txt'
-        sourceFile = splitext(sourceFile)[0] + '-'
-        t = Thread(target=render_and_view, args=(sourceFile, diagrams,))
+        t = Thread(target=render_and_view, args=(sourceFile, diagrams, output))
         t.daemon = True
         t.start()
         return True
@@ -118,12 +115,12 @@ def process(view):
         return False
 
 
-def render_and_view(sourceFile, diagrams):
+def render_and_view(sourceFile, diagrams, output):
     print("Rendering %r" % diagrams)
     diagram_files = []
 
     for processor, blocks in diagrams:
-        diagram_files.extend(processor.process(sourceFile, blocks))
+        diagram_files.extend(processor.process(sourceFile, blocks, output))
 
     if diagram_files:
         print("%r viewing %r" % (ACTIVE_VIEWER, [d.name for d in diagram_files]))

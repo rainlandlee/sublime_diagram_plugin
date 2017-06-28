@@ -2,27 +2,65 @@
 from .base import BaseDiagram
 from .base import BaseProcessor
 from subprocess import Popen as execute, PIPE, STDOUT, call
-from os.path import abspath, dirname, exists, join
+from os import getcwd, chdir
+from os.path import abspath, dirname, exists, join, splitext
 from tempfile import NamedTemporaryFile
 from platform import system
 
+import sys
+if sys.version_info < (3, 0):
+    import os
+    DEVNULL = open(os.devnull, 'wb')
+else:
+    from subprocess import DEVNULL
+
 IS_MSWINDOWS = (system() == 'Windows')
 CREATE_NO_WINDOW = 0x08000000  # See MSDN, http://goo.gl/l4OKNe
-EXTRA_CALL_ARGS = {'creationflags': CREATE_NO_WINDOW} if IS_MSWINDOWS else {}
+EXTRA_CALL_ARGS = {'creationflags': CREATE_NO_WINDOW, 'shell': True} if IS_MSWINDOWS else {}
 
 
 class PlantUMLDiagram(BaseDiagram):
-    def __init__(self, processor, sourceFile, text):
+
+    def __init__(self, processor, sourceFile, text, output):
         super(PlantUMLDiagram, self).__init__(processor, sourceFile, text)
-        self.file = NamedTemporaryFile(prefix=sourceFile, suffix='.png', delete=False)
+
+        self.output = output
+        self.workDir = None
+        if sourceFile is None:
+            self.file = NamedTemporaryFile(prefix='untitled', suffix='.%s' % self.output, delete=False)
+
+        else:
+            sourceDir = dirname(sourceFile)
+            if exists(sourceDir):
+                self.workDir = sourceDir
+            if self.proc.NEW_FILE:
+                self.file = NamedTemporaryFile(prefix=sourceFile, suffix='.%s' % self.output, delete=False)
+            else:
+                sourceFile = splitext(sourceFile)[0] + '.%s' % self.output
+                self.file = open(mode='w', file=sourceFile)
 
     def generate(self):
+        """
+        Set the dir of sourceFile as working dir, otherwise plantuml could not include files correctly.
+        """
+        cwd = getcwd()
+        if self.workDir:
+            print('chdir to:', self.workDir)
+            chdir(self.workDir)
+
+        try:
+            return self._generate()
+        finally:
+            if self.workDir:
+                chdir(cwd)
+
+    def _generate(self):
         command = [
             'java',
             '-jar',
             self.proc.plantuml_jar_path,
             '-pipe',
-            '-tpng',
+            '-t%s' % self.output,
             '-charset',
             'UTF-8'
         ]
@@ -35,7 +73,7 @@ class PlantUMLDiagram(BaseDiagram):
 
         puml = execute(
             command,
-            stdin=PIPE, stdout=self.file,
+            stdin=PIPE, stdout=self.file, stderr=DEVNULL,
             **EXTRA_CALL_ARGS
         )
         puml.communicate(input=self.text.encode('UTF-8'))
@@ -79,6 +117,7 @@ class PlantUMLProcessor(BaseProcessor):
             ],
             stdout=PIPE,
             stderr=STDOUT,
+            stdin=DEVNULL,
             **EXTRA_CALL_ARGS
         )
 
@@ -115,6 +154,7 @@ class PlantUMLProcessor(BaseProcessor):
             ],
             stdout=PIPE,
             stderr=STDOUT,
+            stdin=DEVNULL,
             **EXTRA_CALL_ARGS
         )
 
@@ -130,13 +170,13 @@ class PlantUMLProcessor(BaseProcessor):
             raise Exception("error verifying PlantUML version")
 
     def extract_blocks(self, view):
-		# If any Region is selected - trying to convert it, otherwise converting all @start-@end blocks in view
+                # If any Region is selected - trying to convert it, otherwise converting all @start-@end blocks in view
         sel = view.sel()
         if sel[0].a == sel[0].b:
             pairs = (
                     (start, view.find('@end', start.begin()),)
-                    for start in view.find_all('@start')
-                )
+                for start in view.find_all('@start')
+            )
             return (view.full_line(start.cover(end)) for start, end in pairs)
         else:
             return sel

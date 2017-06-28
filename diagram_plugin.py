@@ -7,9 +7,9 @@ except ValueError:
 
 
 class DisplayDiagrams(TextCommand):
-    def run(self, edit):
+    def run(self, edit, output="png"):
         print("Processing diagrams in %r..." % self.view)
-        if not process(self.view):
+        if not process(self.view, output):
             error_message("No diagrams overlap selections.\n\n" \
                 "Nothing to process.")
 
